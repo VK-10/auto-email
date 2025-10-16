@@ -1,8 +1,28 @@
 import { esClient } from "./elastic-search.ts";
-import { emailCategorizer} from "./email-categorizer.ts";
-import type { EmailCategory} from "./email-categorizer.ts";
+import { emailCategorizer, EmailCategory } from "./email-categorizer.ts";
 
 const INDEX = "emails";
+
+// ✅ Export Email type
+export interface Email {
+  uid: number;
+  from: string;
+  to: string;
+  subject: string;
+  body?: string;
+  date: string;
+  folder: string;
+  account: string;
+  isRead?: boolean;
+  isImportant?: boolean;
+  hasAttachments?: boolean;
+  messageId?: string;
+  threadId?: string;
+  labels?: string[];
+  aiCategory?: string;
+  aiConfidence?: number;
+  aiReasoning?: string;
+}
 
 // ✅ Create index if it doesn't exist
 export async function setupEmailIndex() {
@@ -72,29 +92,10 @@ export async function setupEmailIndex() {
   }
 }
 
-// Function to index a single email with AI categorization
-export async function indexEmail(email: any) {
-
-  if (email.aicategory) {
-    console.log(`already categorized`);
-    await esClient.index({
-      index: INDEX,
-      document: email,
-    });
-    return;
-  }
-  // AI categorization
-  let categorization;
-  try {categorization = await emailCategorizer.categorize(email);
-
-  } catch (e) {
-    console.error("AI categorization error:", e);
-    categorization = {
-      category: "OTHERS" as EmailCategory,
-      confidence: 0.3,
-      reasoning: ["AI categorization failed"]
-    };
-  }
+// ✅ Function to index a single email with AI categorization
+export async function indexEmail(email: Email) {
+  // Perform AI categorization
+  const categorization = emailCategorizer.categorize(email);
   
   // Add AI categorization data to email
   const enrichedEmail = {
@@ -109,10 +110,10 @@ export async function indexEmail(email: any) {
     document: enrichedEmail,
   });
 
-  console.log(`Indexed email: ${email.subject} [${categorization.category}]`);
+  console.log(`📩 Indexed email: ${email.subject} [${categorization.category}]`);
 }
 
-// Advanced search with filtering
+// ✅ Advanced search with filtering
 export async function searchEmails(options: {
   query?: string;
   folder?: string;
@@ -246,9 +247,7 @@ export async function searchEmails(options: {
 
   return {
     emails: hits,
-    total: typeof result.hits.total === "number"
-    ? result.hits.total
-    : result.hits.total?.value ?? 0,
+    total: result.hits.total.value,
     took: result.took
   };
 }
@@ -268,20 +267,7 @@ export async function getFolders() {
     size: 0
   });
 
-  const byFolder = (result.aggregations?.by_folder as any)?.buckets ?? [];
-const byAccount = (result.aggregations?.by_account as any)?.buckets ?? [];
-
-return {
-  total: (result.aggregations?.total_emails as any)?.value ?? 0,
-  byFolder: (result.aggregations?.by_folder as any)?.buckets ?? [],
-  byAccount: (result.aggregations?.by_account as any)?.buckets ?? [],
-  unread: (result.aggregations?.unread_count as any)?.doc_count ?? 0,
-  important: (result.aggregations?.important_count as any)?.doc_count ?? 0,
-  withAttachments: (result.aggregations?.with_attachments as any)?.doc_count ?? 0,
-};
-
-
-
+  return result.aggregations.folders.buckets.map((bucket: any) => bucket.key);
 }
 
 // ✅ Get all unique accounts
@@ -299,15 +285,7 @@ export async function getAccounts() {
     size: 0
   });
 
-  return {
-  total: (result.aggregations?.total_emails as any)?.value ?? 0,
-  byFolder: (result.aggregations?.by_folder as any)?.buckets ?? [],
-  byAccount: (result.aggregations?.by_account as any)?.buckets ?? [],
-  unread: (result.aggregations?.unread_count as any)?.doc_count ?? 0,
-  important: (result.aggregations?.important_count as any)?.doc_count ?? 0,
-  withAttachments: (result.aggregations?.with_attachments as any)?.doc_count ?? 0,
-};
-
+  return result.aggregations.accounts.buckets.map((bucket: any) => bucket.key);
 }
 
 // ✅ Get email statistics
@@ -336,14 +314,13 @@ export async function getEmailStats() {
   });
 
   return {
-  total: (result.aggregations?.total_emails as any)?.value ?? 0,
-  byFolder: (result.aggregations?.by_folder as any)?.buckets ?? [],
-  byAccount: (result.aggregations?.by_account as any)?.buckets ?? [],
-  unread: (result.aggregations?.unread_count as any)?.doc_count ?? 0,
-  important: (result.aggregations?.important_count as any)?.doc_count ?? 0,
-  withAttachments: (result.aggregations?.with_attachments as any)?.doc_count ?? 0,
-};
-
+    total: result.aggregations.total_emails.value,
+    byFolder: result.aggregations.by_folder.buckets,
+    byAccount: result.aggregations.by_account.buckets,
+    unread: result.aggregations.unread_count.doc_count,
+    important: result.aggregations.important_count.doc_count,
+    withAttachments: result.aggregations.with_attachments.doc_count
+  };
 }
 
 // ✅ Initialize index on module load

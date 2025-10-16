@@ -5,7 +5,8 @@ import morgan from "morgan";
 import { fetchLast30DaysMails } from "./mail.ts";
 import { mailEmitter, startIdleConnection } from "./idle-mode.ts";
 import { searchEmails, getFolders, getAccounts, getEmailStats } from "./elastic-index.ts";
-import { emailCategorizer, EmailCategory } from "./email-categorizer.ts";
+import { emailCategorizer} from "./email-categorizer.ts";
+import type { EmailCategory} from "./email-categorizer.ts";
 import { WebSocketServer } from "ws";
 
 
