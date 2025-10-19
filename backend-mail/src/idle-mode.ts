@@ -1,13 +1,60 @@
 // src/idle.ts
 import Imap from "node-imap";
-import { getAccessToken } from "./oauth.ts";
+import { getAccessToken } from "./oauth";
 import dotenv from "dotenv";
 import { EventEmitter } from "events";
-import { indexEmail } from "./elastic-index.ts";
-import { fetchEmails } from "./utils/fetch-mails.ts";
+import { indexEmail } from "./elastic-index";
+import { fetchEmails } from "./utils/fetch-mails";
+import { categorizeEmailsBatch } from "./email-categorizer";
 
 dotenv.config();
 
+const categoryQueue : any[] = [];
+const BATCH_SIZE = 10;
+let isProcessingQueue = false; // Global variable to prevent overlapping processing
+
+// New function to process the queue in a batch
+async function processCategoryQueue() {
+  if (categoryQueue.length === 0) return;
+
+  const batch = categoryQueue.splice(0, BATCH_SIZE);
+  console.log(`  [Idle Mode] Processing batch of ${batch.length} emails for categorization.`);
+  
+  try {
+    const categorized = await categorizeEmailsBatch(batch);
+    
+    // Index the emails *with* the new category data (Elasticsearch will update existing docs)
+    await indexEmail(categorized, true); // The 'true' flag tells indexEmail to perform an update
+    
+  } catch (err: any) {
+    if (err.message.includes("429")) {
+        console.warn("  [Idle Mode] Gemini rate limit hit, retrying batch in 10s...");
+    } else {
+        console.error("  [Idle Mode] Error during batch categorization:", err.message);
+    }
+    // Put failed batch back to try again later
+    categoryQueue.unshift(...batch);
+  } finally {
+    // Re-trigger after a delay to ensure all emails are processed
+    setTimeout(triggerQueueProcessing, 5000);
+  }
+}
+
+
+
+// Function to trigger queue processing
+function triggerQueueProcessing() { // ADD THIS FUNCTION
+    if (isProcessingQueue) return;
+    isProcessingQueue = true;
+    processCategoryQueue().finally(() => {
+        isProcessingQueue = false;
+        // Re-check in case new emails arrived while processing
+        if (categoryQueue.length > 0) {
+            setTimeout(triggerQueueProcessing, 5000); // Check again in 5 seconds
+        }
+    });
+}
+ 
 // Event emitter to push new emails to frontend
 export const mailEmitter = new EventEmitter();
 
@@ -41,7 +88,9 @@ export async function startIdleConnection() {
       const initialEmails = await fetchEmails(imap, 30);
       for (const email of initialEmails) {
         mailEmitter.emit("email", email);
-        await indexEmail(email);
+        await indexEmail(email); // index the email immediately (without category)
+        categoryQueue.push(email); // add to the queue for bath categorization
+        triggerQueueProcessing(); // trigger processing
         if (email.uid > lastUID) lastUID = email.uid;
       };
 
@@ -57,59 +106,6 @@ export async function startIdleConnection() {
       });
     });
   });
-
- 
-
-  // // Fetch only new emails using lastUID
-  // async function fetchNewEmails() {
-  //   if (!lastUID) return;
-
-  //   imap.search(["UID", `${lastUID + 1}:*`], (err, results) => {
-  //     if (err) throw err;
-  //     if (!results || !results.length) return;
-
-  //     const f = imap.fetch(results, { bodies: "HEADER.FIELDS (FROM TO SUBJECT DATE)", struct: true });
-
-  //     f.on("message", (msg) => {
-  //       let headers = "";
-  //       let uid = 0;
-
-  //       msg.on("attributes", (attrs) => {
-  //         uid = attrs.uid;
-  //       });
-
-  //       msg.on("body", (stream) => {
-  //         stream.on("data", (chunk) => (headers += chunk.toString("utf8")));
-  //       });
-
-  //       msg.once("end", async () => {
-  //         const parsed = Imap.parseHeader(headers);
-  //         const email = {
-  //           uid,
-  //           from : parsed.from?.[0] || "",
-  //           to: parsed.to?.[0] || "",
-  //           subject: parsed.subject?.[0] || "(No subject)",
-  //           date: parsed.date ? new Date(parsed.date[0]).toISOString() : new Date().toISOString(),
-  //           folder: "INBOX",
-  //           account : process.env.GMAIL_USER || "default",
-  //         };
-  //         mailEmitter.emit("email", email);
-  //         await indexEmail(email);
-  //         if (uid > lastUID) lastUID = uid;
-  //       });
-  //     });
-
-      
-
-  //     f.once("end", () => console.log(" Fetched new emails"));
-  //   });
-  // }
-
-  // // Connection events
-  // imap.once("ready", openInbox);
-
-
-
 
 
   imap.once("error", (err) => console.error("IMAP error:", err));

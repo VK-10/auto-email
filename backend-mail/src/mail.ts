@@ -1,8 +1,8 @@
 import Imap from "node-imap";
 import { inspect } from "util";
-import { getAccessToken } from "./oauth.ts";
+import { getAccessToken } from "./oauth";
 import dotenv from 'dotenv';
-import { fetchEmails } from "./utils/fetch-mails.ts";
+import { fetchEmails } from "./utils/fetch-mails";
 
 dotenv.config();
 
@@ -27,7 +27,7 @@ export async function fetchLast30DaysMails() {
 
   return new Promise<any[]>((resolve, reject) => {
  
-    imap.once("reday", async () => {
+    imap.once("ready", async () => {
       imap.openBox("INBOX", true, async (err)=> {
         if (err) return reject(err);
         const mails = await fetchEmails(imap, 30);

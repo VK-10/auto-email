@@ -8,7 +8,12 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
+    "allowImportingTsExtensions": false,
+    "noEmit": true,
     "outDir": "./dist"
+  },
+  "ts-node": {
+    "esm": true
   },
   "include": ["src/**/*"]
 }

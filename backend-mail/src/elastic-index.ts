@@ -1,10 +1,12 @@
-import { esClient } from "./elastic-search.ts";
-import { emailCategorizer} from "./email-categorizer.ts";
-import type { EmailCategory} from "./email-categorizer.ts";
+import { esClient } from "./elastic-search";
+// import { emailCategorizer} from "./email-categorizer.ts";
+
 
 const INDEX = "emails";
 
-// ✅ Create index if it doesn't exist
+type EmailCategory = "Interested" |  "Meeting Booked" |  "Not Interested" |  "Spam" | "Out of Office";
+
+// index if it doesn't exist
 export async function setupEmailIndex() {
   const exists = await esClient.indices.exists({ index: INDEX });
 
@@ -66,50 +68,65 @@ export async function setupEmailIndex() {
       } as any,
     });
 
-    console.log(`✅ Created index: ${INDEX}`);
+    console.log(`Created index: ${INDEX}`);
   } else {
-    console.log(`ℹ️ Index ${INDEX} already exists`);
+    console.log(`ℹIndex ${INDEX} already exists`);
   }
 }
 
-// Function to index a single email with AI categorization
-export async function indexEmail(email: any) {
+// Function to index a email with AI categorization
+export async function indexEmail(emailOrEmails: any | any[] , isUpdate: boolean = false) {
 
-  if (email.aicategory) {
-    console.log(`already categorized`);
-    await esClient.index({
-      index: INDEX,
-      document: email,
+  if (Array.isArray(emailOrEmails)){
+    console.log(`Starting bulk ${isUpdate ? 'update' : 'indexing'} for ${emailOrEmails.length} emails......`);
+
+    const operations = emailOrEmails.flatMap(doc => {
+      const action = isUpdate ? 'update' : 'index';
+
+      const docBody = {
+        ...doc,
+        aiCategory : doc.category,
+        aiConfidence: doc.confidence || 1.0, 
+        aiReasoning: doc.reasoning?.join("; ") || "AI Categorization",
+      };
+
+      if (isUpdate) {
+        return [
+          { update: { _index: INDEX, _id: doc.id } },
+          { 
+            doc: { 
+              aiCategory: docBody.aiCategory, 
+              aiConfidence: docBody.aiConfidence,  // ✅ FIXED: was doc.aiConfidence
+              aiReasoning: docBody.aiReasoning 
+            }
+          }
+        ];
+      } else {
+        return [
+          { index: { _index: INDEX, _id: doc.uid } },
+          docBody
+        ]
+      }
     });
+
+    const bulkResponse = await esClient.bulk({ refresh: true, operations });
+
+    if (bulkResponse.errors) {
+      console.error("Bulk indexing errors:", bulkResponse.items.filter(item => item.index?.error || item.update?.error));
+    }
+    console.log("  ✅ Bulk operation complete.");
     return;
   }
-  // AI categorization
-  let categorization;
-  try {categorization = await emailCategorizer.categorize(email);
 
-  } catch (e) {
-    console.error("AI categorization error:", e);
-    categorization = {
-      category: "OTHERS" as EmailCategory,
-      confidence: 0.3,
-      reasoning: ["AI categorization failed"]
-    };
-  }
-  
-  // Add AI categorization data to email
-  const enrichedEmail = {
-    ...email,
-    aiCategory: categorization.category,
-    aiConfidence: categorization.confidence,
-    aiReasoning: categorization.reasoning.join("; ")
-  };
+  const email = emailOrEmails;
 
   await esClient.index({
     index: INDEX,
-    document: enrichedEmail,
+    id: email.uid,
+    document: email,
   });
 
-  console.log(`Indexed email: ${email.subject} [${categorization.category}]`);
+  console.log(`Indexed email: ${email.subject} [${email.subject} (Queued for category)`);
 }
 
 // Advanced search with filtering
@@ -310,7 +327,7 @@ export async function getAccounts() {
 
 }
 
-// ✅ Get email statistics
+//email statistics
 export async function getEmailStats() {
   const result = await esClient.search({
     index: INDEX,

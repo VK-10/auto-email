@@ -2,13 +2,14 @@ import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import morgan from "morgan";
-import { fetchLast30DaysMails } from "./mail.ts";
-import { mailEmitter, startIdleConnection } from "./idle-mode.ts";
-import { searchEmails, getFolders, getAccounts, getEmailStats } from "./elastic-index.ts";
-import { emailCategorizer} from "./email-categorizer.ts";
-import type { EmailCategory} from "./email-categorizer.ts";
+import { fetchLast30DaysMails } from "./mail";
+import { mailEmitter, startIdleConnection } from "./idle-mode";
+import { searchEmails, getFolders, getAccounts, getEmailStats } from "./elastic-index";
+// import { emailCategorizer} from "./email-categorizer.ts";
+type EmailCategory = "Interested" |  "Meeting Booked" |  "Not Interested" |  "Spam" | "Out of Office";
+import { categorizeEmailsBatch} from "./email-categorizer.js";
 import { WebSocketServer } from "ws";
-
+import { processInterestedEmails, notifyInterestedEmail } from "./notifications.js";
 
 
 const app = express();
@@ -91,7 +92,7 @@ app.get("/search", async (req, res) => {
   }
 });
 
-// 📁 Get all folders
+// Get all folders
 app.get("/folders", async (req, res) => {
   try {
     const folders = await getFolders();
@@ -101,7 +102,7 @@ app.get("/folders", async (req, res) => {
   }
 });
 
-// 👤 Get all accounts
+// Get all accounts
 app.get("/accounts", async (req, res) => {
   try {
     const accounts = await getAccounts();
@@ -111,7 +112,7 @@ app.get("/accounts", async (req, res) => {
   }
 });
 
-// 📊 Get email statistics
+// Get email statistics
 app.get("/stats", async (req, res) => {
   try {
     const stats = await getEmailStats();
@@ -121,23 +122,6 @@ app.get("/stats", async (req, res) => {
   }
 });
 
-// 🤖 Categorize a single email
-app.post("/categorize", async (req, res) => {
-  try {
-    const { email } = req.body;
-    if (!email) {
-      return res.status(400).json({ error: "Email data is required" });
-    }
-
-    const categorization = emailCategorizer.categorize(email);
-    res.json(categorization);
-  } catch (err) {
-    console.error("Categorization error:", err);
-    res.status(500).json({ error: err instanceof Error ? err.message : "Categorization failed" });
-  }
-});
-
-// 🤖 Categorize multiple emails
 app.post("/categorize/batch", async (req, res) => {
   try {
     const { emails } = req.body;
@@ -145,21 +129,23 @@ app.post("/categorize/batch", async (req, res) => {
       return res.status(400).json({ error: "Emails array is required" });
     }
 
-    const categorizations = emailCategorizer.categorizeBatch(emails);
-    const stats = emailCategorizer.getCategoryStats(categorizations);
-    
+    const categorizedEmails = await categorizeEmailsBatch(emails);
+    // const stats = categorizeEmailsBatch.getCategoryStats(categorizations);
+
     res.json({
-      categorizations,
-      stats,
-      total: emails.length
-    });
+      total : categorizedEmails.length,
+      categorizedEmails
+    })
+
+    await processInterestedEmails(categorizedEmails);
+    
   } catch (err) {
     console.error("Batch categorization error:", err);
     res.status(500).json({ error: err instanceof Error ? err.message : "Batch categorization failed" });
   }
 });
 
-// 🤖 Get AI category statistics
+// Get AI category statistics
 app.get("/ai-stats", async (req, res) => {
   try {
     const result = await searchEmails({ size: 1000 }); // Get more emails for stats
@@ -172,7 +158,7 @@ app.get("/ai-stats", async (req, res) => {
       }
     }));
     
-    const stats = emailCategorizer.getCategoryStats(categorizations);
+    const stats = categorizeEmailsBatch(categorizations);
     res.json(stats);
   } catch (err) {
     console.error("AI stats error:", err);
@@ -186,10 +172,9 @@ app.get("/ai-categories", async (req, res) => {
     const categories: EmailCategory[] = [
       "Interested",
       "Meeting Booked", 
-      "Not Interested",
-      "Spam",
-      "Out of Office",
-      "Uncategorized"
+      "Not Interested", 
+      "Spam", 
+      "Out of Office"
     ];
     
     res.json({ categories });
