@@ -3,7 +3,7 @@
 An intelligent email automation system that monitors Gmail in real-time, categorizes emails using AI, and instantly notifies your team about interested leads via Slack.
 ⚠️ Note:
 This project is currently in development and not deployed in production.
-Gmail access requires OAuth authentication and explicit permission from the developer to connect new accounts.
+Gmail access requires OAuth authentication and explicit permission from the developer(me) to connect new accounts.
 
 ![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)
 ![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat&logo=node.js&logoColor=white)
