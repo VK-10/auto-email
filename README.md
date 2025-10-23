@@ -281,6 +281,3 @@ backend-mail/
 
 ---
 
-⭐ **Star this repository if you find it useful!**
-
-📧 **Questions?** Open an issue or reach out on LinkedIn!
