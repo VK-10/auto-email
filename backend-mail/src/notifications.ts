@@ -19,6 +19,9 @@ interface NotificationResult {
 // ==================== SLACK NOTIFICATION ====================
 async function sendSlackNotification(email: Email): Promise<NotificationResult> {
   const slackWebhookUrl = process.env.SLACK_WEBHOOK_URL;
+
+   console.log(`\n Checking Slack configuration...`);
+  console.log(`   SLACK_WEBHOOK_URL exists: ${!!slackWebhookUrl}`);
   
   if (!slackWebhookUrl) {
     console.warn("⚠️  SLACK_WEBHOOK_URL not configured");
@@ -71,6 +74,7 @@ async function sendSlackNotification(email: Email): Promise<NotificationResult> 
   };
 
   try {
+    console.log(`----Sending Slack notification---`);
     const response = await fetch(slackWebhookUrl, {
       method: "POST",
       headers: {

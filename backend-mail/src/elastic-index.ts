@@ -92,11 +92,11 @@ export async function indexEmail(emailOrEmails: any | any[] , isUpdate: boolean 
 
       if (isUpdate) {
         return [
-          { update: { _index: INDEX, _id: doc.id } },
+          { update: { _index: INDEX, _id: doc.uid } },  // ✅ FIXED: use doc.uid instead of doc.id
           { 
             doc: { 
               aiCategory: docBody.aiCategory, 
-              aiConfidence: docBody.aiConfidence,  // ✅ FIXED: was doc.aiConfidence
+              aiConfidence: docBody.aiConfidence,
               aiReasoning: docBody.aiReasoning 
             }
           }

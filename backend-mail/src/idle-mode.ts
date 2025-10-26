@@ -6,6 +6,7 @@ import { EventEmitter } from "events";
 import { indexEmail } from "./elastic-index";
 import { fetchEmails } from "./utils/fetch-mails";
 import { categorizeEmailsBatch } from "./email-categorizer";
+import { processInterestedEmails } from "./notifications.js";
 
 dotenv.config();
 
@@ -25,6 +26,10 @@ async function processCategoryQueue() {
     
     // Index the emails *with* the new category data (Elasticsearch will update existing docs)
     await indexEmail(categorized, true); // The 'true' flag tells indexEmail to perform an update
+
+    //interested emails
+    console.log(`  [Idle Mode] Checking for interested emails to notify...`);
+    await processInterestedEmails(categorized);
     
   } catch (err: any) {
     if (err.message.includes("429")) {
@@ -95,13 +100,18 @@ export async function startIdleConnection() {
       };
 
       //watching for new mails
-      imap.on("mail",async (numNewMsgs) => {
+      imap.on("mail", async (numNewMsgs) => {
         console.log(`---${numNewMsgs} new email(s) arrived----`);
         const newEmails = await fetchEmails(imap, 30, lastUID);
         for (const email of newEmails) {
           mailEmitter.emit("email", email);
-          await indexEmail(email);
+          await indexEmail(email); // index without category first
+          categoryQueue.push(email); // add to queue for AI categorization
           if (email.uid > lastUID) lastUID = email.uid;
+        }
+        // Trigger categorization for new emails
+        if (newEmails.length > 0) {
+          triggerQueueProcessing();
         }
       });
     });
